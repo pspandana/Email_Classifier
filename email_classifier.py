@@ -7,42 +7,14 @@ from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
-# These are for sending emails
-import smtplib
-import ssl
-
-# --- SETUP: Load secrets ---
+# --- SETUP: Load the secret API key ---
 load_dotenv()
-MY_EMAIL = os.getenv("MY_EMAIL")
-MY_EMAIL_APP_PASSWORD = os.getenv("MY_EMAIL_APP_PASSWORD")
 if not os.getenv("OPENAI_API_KEY"):
     raise ValueError("OpenAI API key not found. Please set it in your .env file.")
 
-# --- HELPER FUNCTION: The Email Sender ---
-def send_email(subject, body, recipient_email):
-    # This function is needed for the sending part of the main loop
-    # (assuming it's defined as we did before)
-    if not MY_EMAIL or not MY_EMAIL_APP_PASSWORD:
-        print("\n--> Email credentials not found in .env file. Cannot send email.")
-        return
 
-    smtp_server = "smtp.gmail.com"
-    port = 465
-    message = f"Subject: {subject}\n\n{body}"
-    context = ssl.create_default_context()
-    print("📬 Connecting to email server...")
-    try:
-        with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
-            server.login(MY_EMAIL, MY_EMAIL_APP_PASSWORD)
-            server.sendmail(MY_EMAIL, recipient_email, message)
-            print("🎉 Email sent successfully!")
-    except Exception as e:
-        print(f"❌ Failed to send email. Error: {e}")
-
-
-# --- UPDATED BLUEPRINT: Includes all the fields we need ---
+# --- BLUEPRINT: Define the structure for ONE email analysis ---
 class EmailAnalysis(BaseModel):
-    """Represents the analysis of a single email with classification, priority, and response."""
     email_id: str = Field(description="The original ID of the email from the input list")
     classification: str = Field(description="The category chosen from the predefined list")
     priority: str = Field(description="High, Medium, or Low, based on the prioritization logic")
@@ -56,7 +28,7 @@ class TriageResults(BaseModel):
     analyses: List[EmailAnalysis] = Field(min_length=1, description="A list containing the analysis for each email.")
 
 
-# --- UPDATED DATA: All emails now have names and email addresses ---
+# --- DATA: Our complete list of 6 sample emails ---
 sample_emails = [
   {
     "id": "email_001",
@@ -72,43 +44,36 @@ sample_emails = [
   },
   {
       "id": "email_004",
-      "content": "Hello, I need help with setting up my sound system. It's not working. - Jimmy (jimmy@example.com)"
+      "content": "Hello, I need help with setting up my new sound system. The instructions are confusing. - Jimmy (jimmy@example.com)"
   },
   {
       "id": "email_005",
-      "content": "Hello, I need to return my order, item is not working as expected. - John (john@example.com)"
+      "content": "I would like to return my order #456. The item is not working as I expected. Please send instructions. - John (john@example.com)"
   },
   {
       "id": "email_006",
-      "content": "I need my refund ASAP, Item broke into pieces and packing horrible. I am not happy with the Seller and going to give the negetive review. - Jane (jane@example.com)"
+      "content": "I need my refund ASAP for order #789. The item I received was broken into pieces and the packing was horrible. I am not happy at all and will be giving a negative review. - Jane (jane@example.com)"
   }
 ]
 
 
-# --- UPDATED PROMPT: Includes the new rules and fields ---
+# --- THE PROMPT: Our carefully engineered instructions ---
 prompt_template_string = """
-You are "Eva," a world-class AI customer service assistant. You are empathetic, efficient, and an expert at understanding customer needs. Your mission is to analyze a list of incoming customer emails. For each email, you must perform the following tasks:
-1.  **Extract** the customer's name and email address.
-2.  **Classify** the email into one of the predefined categories.
-3.  **Prioritize** the email based on its urgency.
-4.  **Decide** if a customer service phone number is needed. Provide '1-800-555-1234' for urgent issues like 'Item Not Delivered' or 'Missing Order'. For all other cases, this should be null.
-5.  **Draft** a high-quality, empathetic response.
-
+You are "Eva," a world-class AI customer service assistant. You are empathetic, efficient, and an expert at understanding customer needs. Your mission is to analyze a list of incoming customer emails. For each email, you must perform the following tasks: 1. **Extract** the customer's name and email address. 2. **Classify** the email into one of the predefined categories. 3. **Prioritize** the email based on its urgency. 4. **Decide** if a customer service phone number is needed. Provide '1-800-555-1234' for urgent issues like 'Item Not Delivered' or 'Missing Order'. For all other cases, this should be null. 5. **Draft** a high-quality, empathetic response.
 **--- RULES AND LOGIC ---**
 **1. Classification Categories:** You MUST classify each email into ONE of the following categories: - Enquiry - Missing Order - Canceling Order - Waiting for Refund - Item Not Delivered (but marked as delivered) - Return Request - Technical Issue - Happy Customer
 **2. Prioritization Logic:** You MUST assign a priority level based on these rules: - **High Priority:** (Item Not Delivered, Missing Order, Canceling Order, Refund for Damaged Item) - **Medium Priority:** (Standard Return Request, Technical Issue, Waiting for Refund) - **Low Priority:** (Enquiry, Happy Customer)
-**3. Response Style:** Your tone must be professional and appropriate. For 'Missing Order', use a 'Reassuring' tone. For 'Happy Customer', use an 'Appreciative' tone. Your response MUST be structured with a clear opening, bullet points for next steps, and a closing. If the customer is happy, your response MUST ask for a review.
-
+**3. Response Style:** Your tone must be professional and appropriate. For 'Missing Order', use a 'Reassuring' tone. For 'Happy Customer', use an 'Appreciative ' tone. Your response MUST be structured with a clear opening, bullet points for next steps, and a closing. If the customer is happy, your response MUST ask for a review.
+**4. support_phone_number: Optional[str] = Field(description="The customer service phone number to provide, if needed. Default to null if not needed.")
 **--- INPUT DATA ---**
 {email_list}
-
 **--- REQUIRED OUTPUT FORMAT ---**
 You MUST provide your analysis as a single JSON object that matches this structure. Do not add any text outside the JSON.
 {format_instructions}
 """
 
 def main():
-    """ The main function to run the AI Email Triage System """
+    """ The main function to run the AI Email Drafting System """
     parser = JsonOutputParser(pydantic_object=TriageResults)
     prompt = ChatPromptTemplate.from_template(
         template=prompt_template_string,
@@ -136,12 +101,12 @@ def main():
     while True:
         print("\n--- EMAILS PENDING ---")
         for i, analysis in enumerate(all_analyses):
-            status = "[✅ SENT]" if i in handled_indices else ""
+            status = "[✅ HANDLED]" if i in handled_indices else ""
             print(f"{i + 1}. To: {analysis['customer_name']} | Priority: {analysis['priority']} {status}")
         print("-" * 22)
 
-        choice_str = input("\nWhich email would you like to handle? (Enter number, or type 'exit' to quit): ")
-        if choice_str.lower() == 'exit':
+        choice_str = input("\nWhich email would you like to handle? (Enter number, or type 'exit','stop' to quit): ")
+        if choice_str.lower() == 'exit' or choice_str.lower() == 'stop':
             print("Exiting the Triage System. Goodbye!")
             break
 
@@ -170,14 +135,9 @@ def main():
                     })
                     current_draft = revised_result.content
 
-                print("\nDraft approved!")
-                send_choice = input("Do you want to send this final email? (y/n): ")
-                if send_choice.lower() == 'y':
-                    subject = f"Re: Your inquiry ({selected_analysis['classification']})"
-                    send_email(subject, current_draft, selected_analysis['customer_email'])
-                    handled_indices.add(choice_index)
-                else:
-                    print("OK, email not sent.")
+                print("\nDraft approved! Marked as handled.")
+                handled_indices.add(choice_index)
+
             else:
                 print("--> Invalid number. Please try again.\n")
         except ValueError:
